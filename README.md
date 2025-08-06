@@ -30,4 +30,4 @@ Este proyecto es un script en Ruby que realiza web scraping sobre el sitio [tale
    ```
 3. Al finalizar, encontrarás el archivo `jobs.csv` en el mismo directorio con todas las ofertas extraídas.
 
-**Autor:Thomas Burgos** Taller de Ruby - Scraping
+**Autor:** Thomas Burgos
