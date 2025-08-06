@@ -1,116 +1,116 @@
+puts 'Taller - Scraping'
 
-puts 'Practicando Ruby'
+#Ejercicio 1
+require 'nokogiri'
+require 'open-uri'
+require 'csv'
 
-# Requiere las librerías necesarias para el scraping y manejo de archivos CSV
-require 'open-uri'   # Permite abrir URLs como si fueran archivos
-require 'nokogiri'   # Permite parsear HTML fácilmente
-require 'csv'        # Permite leer y escribir archivos CSV
+url = 'https://talently.tech/trabajos?page=1'
 
-# Clase principal para extraer confesiones y guardarlas en un archivo CSV
-class Extractor
-  attr_accessor :archivo, :url
 
-  # Inicializa el extractor con el nombre del archivo CSV
-  def initialize(archivo)
-    @archivo = archivo
-  end
-
-  # Limpia el archivo CSV, dejándolo vacío
-  # Se utiliza para reiniciar el archivo antes de guardar nuevos datos
-  def limpiar(archivo)
-    CSV.open(archivo, 'w') do |csv|
-      # No se escribe nada, solo se limpia el archivo
-    end
-  end 
-
-  # Guarda una fila de datos en el archivo CSV
-  # Recibe un arreglo con los datos a guardar
-  def guardar(archivo, datos)
-    CSV.open(archivo, 'a') do |csv|
-      csv << datos
+pagina = URI.open(url)
+html = Nokogiri::HTML(pagina.read)
+doc = html.css('.gap-3 .block')
+doc.each do |card|
+  titulo = card.css('.text-neutral-700').text.strip
+  datos = []
+  descripcion = card.css('.line-clamp-3').text.strip
+  link = "https://talently.tech"+card.attribute("href").to_s
+  card.css('.text-sm').each do |dato|
+    if !(dato.text.strip.empty?)
+      datos.push(dato.text.strip)
     end
   end
+  
+  if datos.length >= 2
+    empresa = datos[0]
+    if datos[1].include?('USD')
+      separacion = datos[1].split('USD')
+      modalidad = separacion[0].strip
+      salario = "USD#{separacion[1]}"
+    else
+      modalidad = datos[1]
+      salario = "No especificado"
+    end
+    puts "#{titulo} - #{empresa} - #{modalidad} - #{salario}"
+  else
+    puts "#{titulo} - Datos incompletos"
+  end
+end
 
-  # Extrae los datos de confesiones de una página web específica
-  # url: dirección de la página a scrapear
-  def obtenerDatos(url)
-    puts "Scrapeando #{url}..." # Mensaje informativo
-    confiesaloHTML = URI.open(url)         # Abre la URL
-    datos = confiesaloHTML.read            # Lee el contenido HTML
-    parsed_content = Nokogiri::HTML(datos) # Parsea el HTML
 
-    # Busca el contenedor principal de las confesiones
-    datosContenedor = parsed_content.css('.infinite-container')
+#Ejercicio 2
+class Job
+  attr_accessor :titulo, :empresa, :modalidad, :salario, :link, :descripcion
 
-    # Itera sobre cada confesión encontrada en la página
-    datosContenedor.css('.infinite-item').each do |confesiones|
-      # Extrae el header con la información meta de la confesión
-      header = confesiones.css('div div.row').css('.meta__container--without-image').css('.row')
+  def initialize(datos)
+    depureJob(datos)
+  end
 
-      # Extrae la sección con más información (likes/dislikes)
-      masInfo = confesiones.css('div.row').css('.read-more')
+  def depureJob(datos)
+    @titulo = datos[:titulo] || 'sin título'
+    @empresa = datos[:empresa] || 'sin empresa'
+    @modalidad = datos[:modalidad] || 'sin modalidad'
+    @salario = datos[:salario] || 'sin salario'
+    @link = datos[:link] || 'sin link'
+    @descripcion = datos[:descripcion] || 'sin descripción'
+  end
+  def saveJob(csv)
+    csv << [@titulo, @empresa, @modalidad, @salario, @link, @descripcion]
+  end
+end
 
-      # Obtiene el ID del autor (usado para identificar los votos)
-      id_author = header.css('.meta__info').css('.meta__author').css('a').css('a:nth-child(3)').inner_text[1..-1]
+class Scraper
+  def initialize(base_url)
+    @base_url = base_url
+  end
 
-      # Obtiene el nombre del autor
-      author = header.css('.meta__info').css('.meta__author').at_css('a').inner_text[0..6]
-
-      # Extrae la fecha y hora de la confesión
-      date = header.css('.meta__info').css('.meta__date').inner_text.strip.split(' ')
-
-      # Si la fecha está completa, la formatea; si no, la deja en nil
-      unless date[5].nil?
-        strFecha = date[1] + ' ' + date[2] + ' ' + date[3][0..3]
-        strHour = date[4] + ' ' + date[5]
-      else
-        strFecha = nil
-        strHour = nil
+  def getJobs(pages = 10)
+    jobs = []
+    (1..pages).each do |p|
+      url = "#{@base_url}?page=#{p}"
+      pagina = URI.open(url)
+      html = Nokogiri::HTML(pagina.read)
+      doc = html.css('.gap-3 .block')
+      doc.each do |card|
+        datos = {}
+        datos[:titulo] = card.css('.text-neutral-700').text.strip
+        datos[:descripcion] = card.css('.line-clamp-3').text.strip
+        datos[:link] = "https://talently.tech" + card.attribute("href").to_s
+        datos[:empresa] = 'sin empresa'
+        datos[:modalidad] = 'sin modalidad'
+        datos[:salario] = 'sin salario'
+        datos_array = []
+        card.css('.text-sm').each do |dato|
+          datos_array.push(dato.text.strip) unless dato.text.strip.empty?
+        end
+        datos[:empresa] = datos_array[0] if datos_array[0]
+        if datos_array[1]&.include?('USD')
+          separacion = datos_array[1].split('USD')
+          datos[:modalidad] = separacion[0].strip.empty? ? 'sin modalidad' : separacion[0].strip
+          datos[:salario] = "USD#{separacion[1]}"
+        elsif datos_array[1]
+          datos[:modalidad] = datos_array[1]
+        end
+        job = Job.new(datos)
+        jobs << job
       end
-
-      # Extrae el texto de la confesión
-      content = confesiones.css('div.row').css('.post-content-text').inner_text.gsub("\n", '')
-
-      # Extrae el número de likes y dislikes usando el ID del autor
-      nrolikes = masInfo.css('span').css("#votosup-#{id_author}").inner_text
-      nrodislikes = masInfo.css('span').css("#votosdown-#{id_author}").inner_text
-
-      # Genera un número aleatorio de comentarios (simulado)
-      nroComentarios = rand(1..100)
-
-      # Guarda todos los datos extraídos en el archivo CSV
-      guardar(archivo, [author.to_s, strFecha.to_s, strHour.to_s, nrolikes.to_i, nrodislikes.to_i, nroComentarios.to_i ,content.to_s])
     end
-    print "confesiones.csv actualizado " # Mensaje de confirmación
+    jobs
   end
 end
 
-# Mensaje de bienvenida al usuario
-puts "Bienvenido al sistema para extraer confesiones"
-
-# Solicita al usuario el número de páginas a extraer
-puts "Ingrese nro páginas: "
-paginaFinal = gets().to_i
-
-# Inicializa la página actual y el extractor
-paginaActual = 1
-extractor = Extractor.new("confesiones.csv")
-
-# Limpia el archivo CSV y escribe la cabecera
-extractor.limpiar(extractor.archivo)
-extractor.guardar(extractor.archivo, %w[Autor Fecha Hora nrolikes nrodislikes nroComentarios texto])
-
-nroLinea = 1 # Variable no utilizada actualmente
-
-# Itera sobre las páginas indicadas por el usuario
-while (paginaActual<=paginaFinal)
-    link = "https://confiesalo.net/?page=#{paginaActual}" # Construye el link de la página
-    linea = extractor.obtenerDatos(link)                  # Extrae y guarda los datos
-    paginaActual+=1                                       # Avanza a la siguiente página
+scraper = Scraper.new('https://talently.tech/trabajos')
+jobs = scraper.getJobs(10)
+puts "Se encontraron #{jobs.length} trabajos"
+CSV.open('jobs.csv', 'w') do |csv|
+  csv << ['Título', 'Empresa', 'Modalidad', 'Salario', 'Link', 'Descripción']
+  jobs.each do |job|
+    job.saveJob(csv)
+  end
 end
 
-# Mensaje final
-puts "Nota: No comparta las confesiones... XD"
+puts "Datos guardados en jobs.csv"
+puts "Fin de Taller"
 
-
-
+ 
